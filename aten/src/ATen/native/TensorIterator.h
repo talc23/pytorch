@@ -74,15 +74,24 @@ struct CAFFE2_API OperandInfo {
   using StrideVector = SmallVector<int64_t, 6>;
   OperandInfo() {}
   explicit OperandInfo(const Tensor& t) : tensor(t) {
-    if (t.defined()) {
-      device = t.device();
-      target_dtype = t.scalar_type();
-      current_dtype = target_dtype;
-    }
+    collect_attrs();
     validate();
   }
+
+  OperandInfo(const Tensor& t, const int64_t skip_dim) : tensor(t) {
+    skip_dimension(skip_dim);
+    collect_attrs();
+    validate();
+  }
+
   OperandInfo(const Tensor& t, Device device, ScalarType dtype)
     : tensor(t), device(device), target_dtype(dtype), current_dtype(t.scalar_type()) {
+    validate();
+  }
+
+  OperandInfo(const Tensor& t, Device device, ScalarType dtype, const int64_t skip_dim)
+    : tensor(t), device(device), target_dtype(dtype), current_dtype(t.scalar_type()) {
+    skip_dimension(skip_dim);
     validate();
   }
 
@@ -124,11 +133,31 @@ struct CAFFE2_API OperandInfo {
 
   bool is_read_write = false;
 
+ private:
+  void collect_attrs(){
+    if (tensor.defined()) {
+      device = tensor.device();
+      target_dtype = tensor.scalar_type();
+      current_dtype = target_dtype;
+    }
+  }
+
   void validate() {
     TORCH_CHECK(
         !tensor.defined() || tensor.layout() == kStrided,
         "unsupported tensor layout: ", tensor.layout());
   }
+
+  void skip_dimension(const int64_t dim){
+    if (tensor.defined()) {
+      // Because this is a low level method, dim is expected to already be wrapped.
+      TORCH_CHECK(dim >= 0 && dim < tensor.dim(), "Cannot skip dimension ", dim,
+                  ". Must be in range[0, ", tensor.dim(), ")");
+      auto* impl = tensor.unsafeGetTensorImpl();
+      impl->set_stride(dim, 0);
+      impl->set_size(dim, 1);
+    }
+ }
 };
 
 struct SplitUntil32Bit;
@@ -323,13 +352,10 @@ struct CAFFE2_API TensorIterator {
   }
 
   /// Construction
-  void add_output(const Tensor& output) {
-    operands_.emplace_back(output);
-    num_outputs_++;
-  }
 
-  void add_output(const Tensor& input, Device device, ScalarType dtype) {
-    operands_.emplace_back(input, device, dtype);
+  template<typename... Args>
+  void add_output(Args... args) {
+    add_input(args...);
     num_outputs_++;
   }
 
@@ -337,8 +363,16 @@ struct CAFFE2_API TensorIterator {
     operands_.emplace_back(input);
   }
 
+  void add_input(const Tensor& input, const int64_t skip_dim) {
+    operands_.emplace_back(input, skip_dim);
+  }
+
   void add_input(const Tensor& input, Device device, ScalarType dtype) {
     operands_.emplace_back(input, device, dtype);
+  }
+
+  void add_input(const Tensor& input, Device device, ScalarType dtype, const int64_t skip_dim) {
+    operands_.emplace_back(input, device, dtype, skip_dim);
   }
 
   void promote_common_dtype() {
