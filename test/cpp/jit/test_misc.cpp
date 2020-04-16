@@ -755,8 +755,11 @@ void checkTracedInputs(const TracedTestInputs& inputs) {
 
 using namespace torch::autograd;
 
-void cleanUpScopeCallbacks() {
-  while (profiler::hasCallbacks()) {
+void cleanUpCallbacks() {
+  while (profiler::hasGlobalCallbacks()) {
+    profiler::popGlobalCallback();
+  }
+  while (profiler::hasThreadLocalCallbacks()) {
     profiler::popCallback();
   }
 }
@@ -797,7 +800,6 @@ void checkScopeCallbacks() {
         },
         [](const profiler::RecordFunction&) {},
         /* needs_inputs */ false,
-        /* sampling_prob */ 1.0,
         /* scopes */ {scope});
   };
 
@@ -880,11 +882,11 @@ void testRecordFunction() {
 
   checkTracedInputs(eager_inputs);
   checkTracedInputs(jit_inputs);
-  cleanUpScopeCallbacks();
+  cleanUpCallbacks();
 
   // test sampled callbacks
   int sampled_cb_ctr = 0;
-  autograd::profiler::pushCallback(
+  autograd::profiler::pushGlobalCallback(
       [&sampled_cb_ctr](const autograd::profiler::RecordFunction& fn) {
         if (std::string(fn.name().str()) == "test") {
           ++sampled_cb_ctr;
@@ -893,10 +895,11 @@ void testRecordFunction() {
       },
       [](const autograd::profiler::RecordFunction&) {},
       /* needs_inputs */ false,
-      /* sampling_prob */ 0.5);
+      /* sampling_prob */ 0.5,
+      /* scopes */ {});
 
   int non_sampled_cb_ctr = 0;
-  autograd::profiler::pushCallback(
+  autograd::profiler::pushGlobalCallback(
       [&non_sampled_cb_ctr](const autograd::profiler::RecordFunction& fn) {
         if (std::string(fn.name().str()) == "test") {
           ++non_sampled_cb_ctr;
@@ -904,7 +907,9 @@ void testRecordFunction() {
         return true;
       },
       [](const autograd::profiler::RecordFunction&) {},
-      /* needs_inputs */ false);
+      /* needs_inputs */ false,
+      /* sampling_prob */ 1.0,
+      /* scopes */ {});
 
   auto run_test_function = []() {
     auto t = torch::randn({1, 2, 3}, at::kCPU);
@@ -931,11 +936,11 @@ void testRecordFunction() {
   TORCH_CHECK(non_sampled_cb_ctr == 3000);
   TORCH_CHECK(sampled_cb_ctr == 1000);
   autograd::profiler::TEST_unsetGlobalSamplingProbability();
-  cleanUpScopeCallbacks();
+  cleanUpCallbacks();
 
   // test the scope of the callbacks
   checkScopeCallbacks();
-  cleanUpScopeCallbacks();
+  cleanUpCallbacks();
 
   // check record function guard
   std::vector<std::string> fn_names;
@@ -965,7 +970,7 @@ void testRecordFunction() {
   }
   TORCH_CHECK(fn_names.size() == 1);
   TORCH_CHECK(fn_names[0] == "B");
-  cleanUpScopeCallbacks();
+  cleanUpCallbacks();
 }
 
 class TestThreadLocalDebugInfo : public at::DebugInfoBase {
