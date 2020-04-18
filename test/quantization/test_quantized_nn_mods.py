@@ -141,11 +141,11 @@ class FunctionalAPITest(QuantizationTestCase):
            pad_h=st.integers(0, 2),
            pad_w=st.integers(0, 2),
            dilation=st.integers(1, 2),
-           X_scale=st.floats(1.2, 1.6),
+           X_scale=st.floats(1.2, 1.6, width=32),
            X_zero_point=st.integers(0, 4),
-           W_scale=st.lists(st.floats(0.2, 1.6), min_size=1, max_size=2),
+           W_scale=st.lists(st.floats(0.2, 1.6, width=32), min_size=1, max_size=2),
            W_zero_point=st.lists(st.integers(-5, 5), min_size=1, max_size=2),
-           Y_scale=st.floats(4.2, 5.6),
+           Y_scale=st.floats(4.2, 5.6, width=32),
            Y_zero_point=st.integers(0, 4),
            use_bias=st.booleans(),
            use_channelwise=st.booleans(),
@@ -567,16 +567,15 @@ class ModuleAPITest(QuantizationTestCase):
 
         # Test serialization of quantized Conv Module using state_dict
         model_dict = qconv_module.state_dict()
-        self.assertEqual(W_q, model_dict['weight'])
+        self.assertEqual(model_dict['weight'], W_q)
         if use_bias:
-            self.assertEqual(b, model_dict['bias'])
+            self.assertEqual(model_dict['bias'], b)
         bytes_io = io.BytesIO()
         torch.save(model_dict, bytes_io)
         bytes_io.seek(0)
         loaded_dict = torch.load(bytes_io)
         for key in loaded_dict:
             self.assertEqual(model_dict[key], loaded_dict[key])
-
         loaded_qconv_module = type(qconv_module)(
             in_channels, out_channels, kernel_size, stride, padding, dilation,
             groups, use_bias, padding_mode="zeros")
