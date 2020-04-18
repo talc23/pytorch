@@ -35,6 +35,8 @@ white_list = [
     ('aten::sizes', datetime.date(2020, 4, 30)),
     ('aten::strides', datetime.date(2020, 4, 30)),
     ('aten::backward', datetime.date(2020, 4, 30)),
+    ('aten::quantized_lstm', datetime.date(2020, 4, 30)),
+    ('aten::quantized_gru', datetime.date(2020, 4, 30)),
 ]
 
 
@@ -61,6 +63,9 @@ def dont_parse(schema_line):
         regexp = re.compile(item[0])
         if regexp.search(schema_line):
             return True
+    if "torch.classes" in schema_line:
+        # TODO Fix type __torch__.torch.classes.xxx
+        return True
     return False
 
 
